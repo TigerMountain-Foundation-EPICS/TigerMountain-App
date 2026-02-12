@@ -6,7 +6,7 @@
   <link rel="icon" src=""> <!--replace with TMF logo-->
 </head>
 <header>
-
+  <h1>Log Page - Aamuktha</h1>
 </header>
 <main>
 
@@ -14,10 +14,83 @@
     <p>Kristal made a change!</p>
     <p>Shrehan made a change!</p>
     <p>Aamuktha made a change!</p>
+    <hr>
+
+    <!-- LOG BUTTONS -->
+    <h2>Quick Log</h2>
+    <button onclick="quickLog('Temperature')">Log Temperature</button>
+    <button onclick="quickLog('pH')">Log pH</button>
+    <button onclick="quickLog('Moisture')">Log Plant Irrigation/Moisture</button>
+
+    <hr>
+
+    <!-- LOG SUBPAGE -->
+    <h2>Log Subpage</h2>
+
+    <label>Garden Bed:</label>
+    <select id="gardenBed">
+      <option value="Bed 1">Bed 1</option>
+      <option value="Bed 2">Bed 2</option>
+      <option value="Bed 3">Bed 3</option>
+    </select>
+
+    <p><strong>Sensor Status:</strong> <span id="sensorStatus">Connected</span></p>
+
+    <label>Log Type:</label>
+    <select id="logType">
+      <option value="Temperature">Temperature</option>
+      <option value="pH">pH</option>
+      <option value="Moisture">Moisture</option>
+    </select>
+
+    <label>Value:</label>
+    <input type="number" id="logValue">
+
+    <br><br>
+    <button onclick="submitLog()">Submit Log</button>
+
+    <hr>
+
+    <!-- RECENT LOGS -->
+    <h2>Recent Logs</h2>
+    <div id="logList"></div>
+
   </body>
   <footer>
-
+    <p>Footer Section</p>
   </footer>
 </main>
+
+<script>
+  function quickLog(type) {
+    let value = prompt("Enter " + type + " value:");
+    if (value) {
+      addLog(type, value);
+    }
+  }
+
+  function submitLog() {
+    let type = document.getElementById("logType").value;
+    let value = document.getElementById("logValue").value;
+
+    if (value === "") {
+      alert("Please enter a value.");
+      return;
+    }
+
+    addLog(type, value);
+    document.getElementById("logValue").value = "";
+  }
+
+  function addLog(type, value) {
+    let bed = document.getElementById("gardenBed").value;
+    let logList = document.getElementById("logList");
+
+    let entry = document.createElement("p");
+    entry.textContent = type + " - " + value + " (" + bed + ")";
+
+    logList.prepend(entry);
+  }
+</script>
 
 </html>
