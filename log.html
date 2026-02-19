@@ -5,10 +5,27 @@
   <title>Log</title>
   <link rel="icon" src=""> <!--replace with TMF logo-->
   <link rel="stylesheet" type="text/css" href="bootstrap\css\bootstrap.min.css">
+  <style>
+    body{max-width:960px;margin:18px auto;padding:12px;font-family:Arial,Helvetica,sans-serif}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+    .pill{padding:6px 10px;border-radius:999px;background:#eef2ff;color:#0b3b78;font-weight:600}
+    .muted{color:#666;font-size:0.95rem}
+    .section{padding:10px;border:1px solid #eee;border-radius:8px;margin-top:12px;background:#fff}
+    #logList .log-item{padding:8px;border-bottom:1px dashed #eee}
+    #changelogList .changelog-item{padding:6px;border-bottom:1px solid #fafafa;font-size:0.9rem}
+    .small-btn{padding:6px 8px;margin-left:6px}
+    label{display:block;margin-top:8px}
+    input, select{padding:6px;width:100%;box-sizing:border-box;margin-top:4px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  </style>
 </head>
 
 <header>
   <h1>Log Page - Aamuktha</h1>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <div id="versionBadge" class="pill">v0.1</div>
+    <button id="bumpVersion" class="btn btn-outline-secondary btn-sm">Bump</button>
+  </div>
 </header>
 
 <main>
@@ -18,9 +35,13 @@
 
     <!-- LOG BUTTONS -->
     <h2>Quick Log</h2>
-    <button onclick="quickLog('Temperature')">Log Temperature</button>
-    <button onclick="quickLog('pH')">Log pH</button>
-    <button onclick="quickLog('Moisture')">Log Plant Irrigation/Moisture</button>
+    <div class="row">
+      <button id="quickTemp" class="btn btn-primary">Log Temperature</button>
+      <button id="quickPh" class="btn btn-primary">Log pH</button>
+      <button id="quickMoist" class="btn btn-primary">Log Moisture</button>
+      <button id="clearLogs" class="btn btn-secondary small-btn">Clear My Logs</button>
+      <button id="exportCsv" class="btn btn-outline-success small-btn">Export CSV</button>
+    </div>
 
     <hr>
 
@@ -34,26 +55,80 @@
       <option value="Bed 3">Bed 3</option>
     </select>
 
-    <p><strong>Sensor Status:</strong> <span id="sensorStatus">Connected</span></p>
+    <p><strong>Sensor Status:</strong> <span id="sensorStatus">Connected</span>
+      <button id="simulateSensor" class="btn btn-sm btn-outline-secondary small-btn">Simulate Sensor</button>
+    </p>
 
     <label>Log Type:</label>
     <select id="logType">
-      <option value="Temperature">Temperature</option>
+      <option value="temperature">Temperature</option>
       <option value="pH">pH</option>
-      <option value="Moisture">Moisture</option>
+      <option value="moisture">Moisture</option>
     </select>
 
     <label>Value:</label>
-    <input type="number" id="logValue">
+    <input type="number" id="logValue" placeholder="Numeric value">
+
+    <label>Notes (optional):</label>
+    <input type="text" id="logNotes" placeholder="Short note">
 
     <br><br>
-    <button onclick="submitLog()">Submit Log</button>
+    <button id="submitLog" class="btn btn-success">Submit Log</button>
+
+    <!-- small stats -->
+    <div class="section" style="margin-top:12px">
+      <div class="muted">Sensor statistics (selected bed & type)</div>
+      <div class="row" style="margin-top:8px">
+        <div class="stat-box" style="padding:8px;border:1px solid #f1f1f1;border-radius:6px;min-width:120px">
+          <div class="muted">Last</div>
+          <div id="statLast">—</div>
+        </div>
+        <div class="stat-box" style="padding:8px;border:1px solid #f1f1f1;border-radius:6px;min-width:120px">
+          <div class="muted">Avg</div>
+          <div id="statAvg">—</div>
+        </div>
+        <div class="stat-box" style="padding:8px;border:1px solid #f1f1f1;border-radius:6px;min-width:160px">
+          <div class="muted">Min / Max</div>
+          <div id="statRange">—</div>
+        </div>
+      </div>
+    </div>
 
     <hr>
 
     <!-- RECENT LOGS -->
-    <h2>Recent Logs</h2>
-    <div id="logList"></div>
+    <h2>Recent Logs <span id="logCount" class="pill" style="margin-left:8px">0</span></h2>
+
+    <label>Filter by type:
+      <select id="filterType" style="width:auto;display:inline-block;margin-left:8px">
+        <option value="">All</option>
+        <option value="temperature">Temperature</option>
+        <option value="pH">pH</option>
+        <option value="moisture">Moisture</option>
+      </select>
+    </label>
+
+    <div id="logList" class="section" aria-live="polite">
+      <!-- log items appear here -->
+    </div>
+
+    <!-- Changelog -->
+    <section class="section" style="margin-top:12px">
+      <h3>Changelog</h3>
+      <div id="changelogList" class="muted">No changes recorded yet.</div>
+    </section>
+
+    <hr>
+
+    <!-- small developer todo list -->
+    <section class="section">
+      <h3>Dev TODOs</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="todoInput" placeholder="Add todo (e.g. convert to React)" style="flex:1;padding:6px">
+        <button id="todoAdd" class="btn btn-sm btn-outline-primary">Add</button>
+      </div>
+      <ul id="todoList" style="margin-top:8px"></ul>
+    </section>
 
   </body>
   <footer>
@@ -62,35 +137,330 @@
 </main>
 
 <script>
-  function quickLog(type) {
-    let value = prompt("Enter " + type + " value:");
-    if (value) {
-      addLog(type, value);
-    }
+  // Keys / defaults
+  const LOGS_KEY = 'tmf_logs_v2';
+  const TODO_KEY = 'tmf_todos_v1';
+  const VERSION_KEY = 'tmf_version';
+  const DRAFT_KEY = 'tmf_log_draft';
+
+  // Simple identity for demo
+  const CURRENT_USER = 'Aamuktha';
+
+  // Element refs
+  const quickTemp = document.getElementById('quickTemp');
+  const quickPh = document.getElementById('quickPh');
+  const quickMoist = document.getElementById('quickMoist');
+  const submitLogBtn = document.getElementById('submitLog');
+  const clearLogsBtn = document.getElementById('clearLogs');
+  const exportCsvBtn = document.getElementById('exportCsv');
+  const simulateSensorBtn = document.getElementById('simulateSensor');
+
+  const gardenBedEl = document.getElementById('gardenBed');
+  const logTypeEl = document.getElementById('logType');
+  const logValueEl = document.getElementById('logValue');
+  const logNotesEl = document.getElementById('logNotes');
+
+  const logListEl = document.getElementById('logList');
+  const logCountEl = document.getElementById('logCount');
+  const filterTypeEl = document.getElementById('filterType');
+
+  const changelogEl = document.getElementById('changelogList');
+
+  const todoInputEl = document.getElementById('todoInput');
+  const todoAddBtn = document.getElementById('todoAdd');
+  const todoListEl = document.getElementById('todoList');
+
+  const versionBadgeEl = document.getElementById('versionBadge');
+  const bumpVersionBtn = document.getElementById('bumpVersion');
+
+  const statLast = document.getElementById('statLast');
+  const statAvg = document.getElementById('statAvg');
+  const statRange = document.getElementById('statRange');
+
+  // sensor state (simple simulation)
+  const sensorState = {
+    'Bed 1': { online: true, lastSeen: null },
+    'Bed 2': { online: true, lastSeen: null },
+    'Bed 3': { online: true, lastSeen: null },
+  };
+
+  // helpers
+  function nowISO(){ return new Date().toISOString(); }
+  function human(iso){ return new Date(iso).toLocaleString(); }
+  function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // storage helpers
+  function loadLogs(){ try { return JSON.parse(localStorage.getItem(LOGS_KEY) || '[]'); } catch { return []; } }
+  function saveLogs(arr){ localStorage.setItem(LOGS_KEY, JSON.stringify(arr)); }
+
+  function loadTodos(){ try { return JSON.parse(localStorage.getItem(TODO_KEY) || '[]'); } catch { return []; } }
+  function saveTodos(arr){ localStorage.setItem(TODO_KEY, JSON.stringify(arr)); }
+
+  function getVersion(){ return localStorage.getItem(VERSION_KEY) || '0.1'; }
+  function setVersion(v){ localStorage.setItem(VERSION_KEY, v); versionBadgeEl.textContent = 'v' + v; }
+
+  // add a changelog entry
+  function addChangelog(msg){
+    const time = human(nowISO());
+    const div = document.createElement('div');
+    div.className = 'changelog-item';
+    div.innerHTML = `<strong>${time}</strong> — ${escapeHtml(msg)}`;
+    if (changelogEl.textContent.trim() === 'No changes recorded yet.') changelogEl.innerHTML = '';
+    changelogEl.prepend(div);
   }
 
-  function submitLog() {
-    let type = document.getElementById("logType").value;
-    let value = document.getElementById("logValue").value;
+  // render logs (with filter)
+  function renderLogs(){
+    const all = loadLogs().slice().sort((a,b) => new Date(b.t) - new Date(a.t));
+    const filter = filterTypeEl.value;
+    const logs = filter ? all.filter(l => l.type === filter) : all;
 
-    if (value === "") {
-      alert("Please enter a value.");
+    if (logs.length === 0) {
+      logListEl.innerHTML = '<div class="muted">No logs yet.</div>';
+    } else {
+      logListEl.innerHTML = logs.map(l => {
+        const notes = l.notes ? `<div class="muted" style="color:#444;margin-top:6px">${escapeHtml(l.notes)}</div>` : '';
+        const unit = unitFor(l.type);
+        return `<div class="log-item">
+                  <strong>${escapeHtml(capitalize(l.type))}</strong> — ${l.value}${unit}
+                  <div class="muted">${escapeHtml(l.bed)} • ${escapeHtml(l.user)} • ${human(l.t)}</div>
+                  ${notes}
+                </div>`;
+      }).join('');
+    }
+
+    // update count badge
+    const count = loadLogs().length;
+    logCountEl.textContent = count;
+  }
+
+  function unitFor(type){
+    if(!type) return '';
+    if(type.toLowerCase().includes('temp')) return ' °C';
+    if(type.toLowerCase().includes('moist')) return ' %';
+    return '';
+  }
+
+  function capitalize(s){ return (s||'').charAt(0).toUpperCase() + (s||'').slice(1); }
+
+  // add a log entry
+  function addLog(type, value, bed = null, notes = '', shared = false){
+    if (value === '' || value === null || isNaN(Number(value))) { alert('Please enter a numeric value'); return; }
+    const logs = loadLogs();
+    const entry = {
+      id: 'L' + Math.random().toString(36).slice(2,9),
+      t: nowISO(),
+      user: CURRENT_USER,
+      bed: bed || gardenBedEl.value,
+      type,
+      value: Number(value),
+      notes,
+      shared
+    };
+    logs.push(entry);
+    saveLogs(logs);
+    renderLogs();
+    updateStats();
+    addChangelog(`Added ${type} log (${value}) to ${entry.bed}`);
+  }
+
+  // clear logs
+  function clearMyLogs(){
+    if (!confirm('Clear all your logs? This will remove them from your browser.')) return;
+    localStorage.removeItem(LOGS_KEY);
+    renderLogs();
+    updateStats();
+    addChangelog('Cleared all logs');
+  }
+
+  // export CSV
+  function exportCSV(){
+    const logs = loadLogs();
+    if (!logs.length) { alert('No logs to export'); return; }
+    const rows = [['id','timestamp','user','bed','type','value','notes']];
+    logs.forEach(l => rows.push([l.id, l.t, l.user, l.bed, l.type, l.value, (l.notes||'').replace(/"/g,'""')]));
+    const csv = rows.map(r => r.map(v => `"${String(v||'')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'logs.csv'; a.click(); URL.revokeObjectURL(url);
+    addChangelog('Exported logs to CSV');
+  }
+
+  // simulate sensor (simple)
+  function simulateSensor(){
+    const bed = gardenBedEl.value;
+    const online = Math.random() > 0.25;
+    sensorState[bed].online = online;
+    sensorState[bed].lastSeen = online ? nowISO() : sensorState[bed].lastSeen;
+    renderSensorStatus();
+    addChangelog(`Simulated sensor for ${bed} — ${online ? 'online' : 'offline'}`);
+  }
+
+  function renderSensorStatus(){
+    const bed = gardenBedEl.value;
+    const st = sensorState[bed];
+    document.getElementById('sensorStatus').textContent = st.online ? `Connected (last: ${st.lastSeen ? human(st.lastSeen) : 'now'})` : `Disconnected (last: ${st.lastSeen ? human(st.lastSeen) : 'never'})`;
+  }
+
+  // compute simple stats for selected bed & type
+  function updateStats(){
+    const bed = gardenBedEl.value;
+    const type = logTypeEl.value;
+    const logs = loadLogs().filter(l => l.bed === bed && l.type === type).map(l => Number(l.value)).filter(v => !isNaN(v));
+    if (logs.length === 0) {
+      statLast.textContent = '—';
+      statAvg.textContent = '—';
+      statRange.textContent = '—';
       return;
     }
-
-    addLog(type, value);
-    document.getElementById("logValue").value = "";
+    const last = logs[logs.length - 1];
+    const avg = (logs.reduce((a,b) => a+b, 0) / logs.length).toFixed(2);
+    const min = Math.min(...logs), max = Math.max(...logs);
+    statLast.textContent = `${last}${unitFor(type)}`;
+    statAvg.textContent = `${avg}${unitFor(type)}`;
+    statRange.textContent = `${min}${unitFor(type)} / ${max}${unitFor(type)}`;
   }
 
-  function addLog(type, value) {
-    let bed = document.getElementById("gardenBed").value;
-    let logList = document.getElementById("logList");
-
-    let entry = document.createElement("p");
-    entry.textContent = type + " - " + value + " (" + bed + ")";
-
-    logList.prepend(entry);
+  // TODOs
+  function renderTodos(){
+    const todos = loadTodos();
+    todoListEl.innerHTML = '';
+    if(!todos.length) { todoListEl.innerHTML = '<li class="muted">No todos — add one to show progress</li>'; return; }
+    todos.forEach((t,i) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<input type="checkbox" data-index="${i}" ${t.done ? 'checked' : ''}/> <span style="margin-left:8px">${escapeHtml(t.text)}</span> <button data-del="${i}" style="margin-left:8px" class="btn btn-sm btn-outline-danger">Remove</button>`;
+      todoListEl.appendChild(li);
+    });
   }
+
+  // add todo
+  function addTodo(text){
+    if(!text) return;
+    const todos = loadTodos();
+    todos.unshift({ text, done: false });
+    saveTodos(todos);
+    renderTodos();
+    addChangelog('Added TODO: ' + text);
+  }
+
+  // toggle todo done & remove
+  todoListEl.addEventListener('click', (e) => {
+    if (e.target.dataset.del != null) {
+      const idx = Number(e.target.dataset.del);
+      const todos = loadTodos();
+      const removed = todos.splice(idx,1)[0];
+      saveTodos(todos);
+      renderTodos();
+      addChangelog('Removed TODO: ' + (removed?.text || 'item'));
+    }
+  });
+  todoListEl.addEventListener('change', (e) => {
+    if (e.target.type === 'checkbox') {
+      const idx = Number(e.target.dataset.index);
+      const todos = loadTodos();
+      todos[idx].done = e.target.checked;
+      saveTodos(todos);
+      renderTodos();
+      addChangelog(`Marked TODO ${e.target.checked ? 'done' : 'undone'}: #${idx+1}`);
+    }
+  });
+  todoAddBtn.addEventListener('click', () => {
+    addTodo(todoInputEl.value.trim());
+    todoInputEl.value = '';
+  });
+
+  // version bump
+  bumpVersionBtn.addEventListener('click', () => {
+    const cur = getVersion().split('.').map(n => parseInt(n,10));
+    cur[1] = (cur[1] || 0) + 1;
+    const newV = `${cur[0] || 0}.${cur[1]}`;
+    setVersion(newV);
+    addChangelog('Bumped version to v' + newV);
+  });
+
+  // draft autosave for subpage inputs
+  function saveDraft(){
+    const draft = { bed: gardenBedEl.value, type: logTypeEl.value, value: logValueEl.value, notes: logNotesEl.value };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }
+  function restoreDraft(){
+    try {
+      const draft = JSON.parse(localStorage.getItem(DRAFT_KEY));
+      if(!draft) return;
+      gardenBedEl.value = draft.bed || gardenBedEl.value;
+      logTypeEl.value = draft.type || logTypeEl.value;
+      logValueEl.value = draft.value || '';
+      logNotesEl.value = draft.notes || '';
+    } catch(e){}
+  }
+  // wire draft autosave
+  [gardenBedEl, logTypeEl, logValueEl, logNotesEl].forEach(el => el.addEventListener('input', saveDraft));
+  restoreDraft();
+
+  // keyboard shortcut: press "n" to focus value input
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'n' && (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA')) {
+      logValueEl.focus();
+      addChangelog('Used keyboard shortcut N to focus value input');
+    }
+  });
+
+  // wire quick buttons
+  document.getElementById('quickTemp').addEventListener('click', () => {
+    const v = prompt('Enter temperature (°C):', '21.0');
+    if (v !== null) addLog('temperature', v);
+  });
+  document.getElementById('quickPh').addEventListener('click', () => {
+    const v = prompt('Enter pH (e.g. 6.5):', '6.8');
+    if (v !== null) addLog('pH', v);
+  });
+  document.getElementById('quickMoist').addEventListener('click', () => {
+    const v = prompt('Enter moisture % (e.g. 45):', '48');
+    if (v !== null) addLog('moisture', v);
+  });
+
+  // submit log (subpage)
+  submitLogBtn.addEventListener('click', () => {
+    const type = logTypeEl.value;
+    const val = parseFloat(logValueEl.value);
+    const notes = logNotesEl.value.trim();
+    if (isNaN(val)) { alert('Please enter a numeric value'); return; }
+    addLog(type, val, gardenBedEl.value, notes);
+    // clear draft after submit
+    localStorage.removeItem(DRAFT_KEY);
+    logValueEl.value = '';
+    logNotesEl.value = '';
+  });
+
+  // simulate sensor
+  simulateSensorBtn.addEventListener('click', simulateSensor);
+
+  // clear & export
+  clearLogsBtn.addEventListener('click', clearMyLogs);
+  exportCsvBtn.addEventListener('click', exportCSV);
+
+  // filter change
+  filterTypeEl.addEventListener('change', renderLogs);
+
+  // initial render
+  setVersion(getVersion());
+  renderLogs();
+  renderSensorStatus();
+  updateStats();
+  renderTodos();
+
+  // tiny periodic sensor ping simulation to show activity
+  setInterval(() => {
+    const beds = Object.keys(sensorState);
+    const b = beds[Math.floor(Math.random()*beds.length)];
+    if (Math.random() > 0.6) {
+      sensorState[b].online = Math.random() > 0.25;
+      sensorState[b].lastSeen = sensorState[b].online ? nowISO() : sensorState[b].lastSeen;
+      addChangelog('Auto-simulated sensor ping for ' + b);
+      renderSensorStatus();
+    }
+  }, 22000);
+
 </script>
 <script src="bootstrap\js\bootstrap.bundle.min.js"></script>
 </html>
