@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
-
 <head>
+  <meta charset="utf-8" />
   <title>Log</title>
   <link rel="icon" src=""> <!--replace with TMF logo-->
-  <link rel="stylesheet" type="text/css" href="bootstrap\css\bootstrap.min.css">
+  <link rel="stylesheet" type="text/css" href="bootstrap/css/bootstrap.min.css">
   <style>
-    body { max-width:900px; margin:18px auto; padding:12px; font-family: Arial, Helvetica, sans-serif; }
-    header { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+    body { max-width:960px; margin:20px auto; padding:14px; font-family: Arial, Helvetica, sans-serif; background:#f6f8fb; }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
     .muted { color:#666; }
     .section { padding:10px; border:1px solid #eee; border-radius:8px; margin-top:12px; background:#fff; }
     #logList .log-item { padding:8px; border-bottom:1px dashed #eee; }
@@ -16,6 +16,9 @@
     input, select { padding:6px; width:100%; box-sizing:border-box; margin-top:4px; }
     .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .small-btn { padding:6px 8px; margin-left:6px; }
+    .pill { padding:6px 10px; border-radius:999px; background:#eef2ff; color:#0b3b78; font-weight:600; }
+    .flex-between { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .log-count { font-weight:700; color:#0b3b78; }
   </style>
 </head>
 
@@ -24,11 +27,10 @@
 </header>
 
 <main>
-
   <body>
     <hr>
 
-    <!-- LOG BUTTONS -->
+    <!-- LOG BUTTONS (kept for visual parity; React will wire the real actions) -->
     <h2>Quick Log</h2>
     <div class="row">
       <button id="quickTemp" class="btn btn-primary">Log Temperature</button>
@@ -38,7 +40,7 @@
 
     <hr>
 
-    <!-- LOG SUBPAGE -->
+    <!-- LOG SUBPAGE (static controls remain — React app will read these if desired) -->
     <h2>Log Subpage</h2>
 
     <label>Garden Bed:</label>
@@ -48,7 +50,7 @@
       <option value="Bed 3">Bed 3</option>
     </select>
 
-    <p>
+    <p class="muted">
       <strong>Sensor Status:</strong>
       <span id="sensorStatus">Connected</span>
       <button id="simulateSensor" class="btn btn-sm btn-outline-secondary small-btn">Simulate Sensor</button>
@@ -69,13 +71,13 @@
 
     <hr>
 
-    <!-- RECENT LOGS -->
-    <h2>Recent Logs</h2>
-    <div id="logList" class="section" aria-live="polite">
-      <!-- logs appear here -->
+    <!-- REACT ROOT: small React app below will replace 'Recent Logs' area -->
+    <div id="react-root" class="section" style="padding:12px;">
+      <!-- React will render here -->
+      <div style="text-align:center; color:#888">Loading React app…</div>
     </div>
 
-    <!-- CHANGES / ACTIVITY -->
+    <!-- CHANGES / ACTIVITY (React will also update changelog) -->
     <section class="section" style="margin-top:12px">
       <h3>Changelog</h3>
       <div id="changelogList" class="muted">No changes recorded yet.</div>
@@ -89,114 +91,252 @@
   </body>
 </main>
 
+<!-- React + Babel from CDN for zero-build dev/demo -->
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+
+<!-- Small vanilla helpers that React and page will share -->
 <script>
+  // shared storage key
   const STORAGE_KEY = 'simple_logs_v1';
-  const CURRENT_USER = 'Aamuktha'; // change if needed
-
-  // DOM refs
-  const quickTemp = document.getElementById('quickTemp');
-  const quickPh = document.getElementById('quickPh');
-  const quickMoist = document.getElementById('quickMoist');
-  const submitLogBtn = document.getElementById('submitLog');
-  const simulateSensorBtn = document.getElementById('simulateSensor');
-
-  const gardenBedEl = document.getElementById('gardenBed');
-  const logTypeEl = document.getElementById('logType');
-  const logValueEl = document.getElementById('logValue');
-
-  const logListEl = document.getElementById('logList');
-  const changelogEl = document.getElementById('changelogList');
-  const sensorStatusEl = document.getElementById('sensorStatus');
-
-  // helper functions
+  // small sensor state for the static controls too
+  let sensorOnline = true;
   function nowISO(){ return new Date().toISOString(); }
   function human(iso){ return new Date(iso).toLocaleString(); }
 
-  function loadLogs(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e){ return []; } }
+  // load/save helpers (used by both React and plain bit)
+  function loadLogs(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
   function saveLogs(arr){ localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
 
-  // very small changelog helper
-  function addChangelog(msg){
+  // small changelog DOM helper (non-React part)
+  function addChangelogDOM(msg){
+    const el = document.getElementById('changelogList');
     const time = human(nowISO());
-    const el = document.createElement('div');
-    el.className = 'changelog-item';
-    el.textContent = `${time} — ${msg}`;
-    if (changelogEl.textContent.trim() === 'No changes recorded yet.') changelogEl.innerHTML = '';
-    changelogEl.prepend(el);
+    const div = document.createElement('div');
+    div.className = 'changelog-item';
+    div.textContent = `${time} — ${msg}`;
+    if (el.textContent.trim() === 'No changes recorded yet.') el.innerHTML = '';
+    el.prepend(div);
   }
 
-  // render logs (simple)
-  function renderLogs(){
-    const logs = loadLogs().slice().sort((a,b) => new Date(b.t) - new Date(a.t));
-    if (!logs.length) {
-      logListEl.innerHTML = '<div class="muted">No logs yet.</div>';
-      return;
-    }
-    logListEl.innerHTML = logs.map(l => {
-      const unit = l.type.includes('temp') ? ' °C' : (l.type.includes('moist') ? ' %' : '');
-      return `<div class="log-item">
-                <strong>${escapeHtml(l.type)}</strong> — ${escapeHtml(String(l.value))}${unit}
-                <div class="muted">${escapeHtml(l.bed)} • ${escapeHtml(l.user)} • ${human(l.t)}</div>
-              </div>`;
-    }).join('');
-  }
-
-  function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
-  // add a log (minimal validation)
-  function addLog(type, value){
-    if (value === '' || value === null || isNaN(Number(value))) { alert('Please enter a numeric value'); return; }
-    const logs = loadLogs();
-    logs.push({
-      id: 'L' + Math.random().toString(36).slice(2,9),
-      t: nowISO(),
-      user: CURRENT_USER,
-      bed: gardenBedEl.value,
-      type,
-      value: Number(value)
-    });
-    saveLogs(logs);
-    renderLogs();
-    addChangelog(`Added ${type} log (${value}) to ${gardenBedEl.value}`);
-  }
-
-  // sensor simulate (simple toggle)
-  let sensorOnline = true;
-  function toggleSensor(){
+  // wire static simulate sensor button for immediate visual feedback
+  document.getElementById('simulateSensor').addEventListener('click', ()=> {
     sensorOnline = !sensorOnline;
-    sensorStatusEl.textContent = sensorOnline ? 'Connected' : 'Disconnected';
-    addChangelog('Sensor ' + (sensorOnline ? 'connected' : 'disconnected'));
-  }
-
-  // wire events
-  quickTemp.addEventListener('click', ()=> {
-    const v = prompt('Enter temperature (°C):', '21');
-    if (v !== null) addLog('temperature', v);
+    document.getElementById('sensorStatus').textContent = sensorOnline ? 'Connected' : 'Disconnected';
+    addChangelogDOM('Toggled sensor to ' + (sensorOnline ? 'Connected' : 'Disconnected'));
   });
-
-  quickPh.addEventListener('click', ()=> {
-    const v = prompt('Enter pH (e.g. 6.5):', '6.8');
-    if (v !== null) addLog('pH', v);
-  });
-
-  quickMoist.addEventListener('click', ()=> {
-    const v = prompt('Enter moisture % (e.g. 45):', '48');
-    if (v !== null) addLog('moisture', v);
-  });
-
-  submitLogBtn.addEventListener('click', ()=> {
-    const type = logTypeEl.value;
-    const v = logValueEl.value;
-    if (v === '' || isNaN(Number(v))) { alert('Please enter a numeric value'); return; }
-    addLog(type, v);
-    logValueEl.value = '';
-  });
-
-  simulateSensorBtn.addEventListener('click', toggleSensor);
-
-  // initialize
-  renderLogs();
 </script>
 
-<script src="bootstrap\js\bootstrap.bundle.min.js"></script>
+<!-- React app (kept intentionally short & readable) -->
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function readLogs() {
+  try { return JSON.parse(localStorage.getItem('simple_logs_v1') || '[]'); }
+  catch { return []; }
+}
+function writeLogs(logs) {
+  localStorage.setItem('simple_logs_v1', JSON.stringify(logs));
+}
+
+// Small helper to export CSV (used in React)
+function exportCSV(logs){
+  if(!logs.length){ alert('No logs to export'); return; }
+  const rows = [['id','timestamp','user','bed','type','value','notes']];
+  logs.forEach(l => rows.push([l.id,l.t,l.user,l.bed,l.type,l.value, (l.notes||'').replace(/"/g,'""') ]));
+  const csv = rows.map(r => r.map(v => `"${String(v||'')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'logs.csv'; a.click(); URL.revokeObjectURL(url);
+  // update the vanilla changelog area for visible progress
+  const time = new Date().toLocaleString();
+  const el = document.getElementById('changelogList');
+  const div = document.createElement('div');
+  div.className = 'changelog-item';
+  div.textContent = `${time} — Exported logs to CSV`;
+  if (el.textContent.trim() === 'No changes recorded yet.') el.innerHTML = '';
+  el.prepend(div);
+}
+
+function LogApp(){
+  const [logs, setLogs] = useState(readLogs());
+  const [bed, setBed] = useState(document.getElementById('gardenBed')?.value || 'Bed 1');
+  const [type, setType] = useState(document.getElementById('logType')?.value || 'temperature');
+  const [value, setValue] = useState('');
+  const [notes, setNotes] = useState('');
+  const [count, setCount] = useState(logs.length);
+
+  // sync with external (vanilla) controls: quick buttons and form
+  useEffect(() => {
+    function onQuickTemp(){ const v = prompt('Enter temperature (°C):','21'); if(v!==null) addQuick('temperature', v); }
+    function onQuickPh(){ const v = prompt('Enter pH (e.g. 6.5):','6.8'); if(v!==null) addQuick('pH', v); }
+    function onQuickMoist(){ const v = prompt('Enter moisture % (e.g. 45):','48'); if(v!==null) addQuick('moisture', v); }
+    function onSubmitForm(){
+      const val = document.getElementById('logValue').value;
+      const t = document.getElementById('logType').value;
+      const b = document.getElementById('gardenBed').value;
+      const n = ''; // simple: notes left blank for static form
+      if(isNaN(Number(val)) || val === ''){ alert('Please enter a numeric value'); return; }
+      addQuick(t, val, b, n);
+      document.getElementById('logValue').value = '';
+    }
+
+    document.getElementById('quickTemp').addEventListener('click', onQuickTemp);
+    document.getElementById('quickPh').addEventListener('click', onQuickPh);
+    document.getElementById('quickMoist').addEventListener('click', onQuickMoist);
+    document.getElementById('submitLog').addEventListener('click', onSubmitForm);
+
+    // cleanup on unmount
+    return () => {
+      document.getElementById('quickTemp').removeEventListener('click', onQuickTemp);
+      document.getElementById('quickPh').removeEventListener('click', onQuickPh);
+      document.getElementById('quickMoist').removeEventListener('click', onQuickMoist);
+      document.getElementById('submitLog').removeEventListener('click', onSubmitForm);
+    };
+  }, [logs]);
+
+  // helper to add a log from either React UI or external UI
+  function addQuick(t, v, b = document.getElementById('gardenBed')?.value || 'Bed 1', n = ''){
+    if (v === '' || isNaN(Number(v))) { alert('Please enter a numeric value'); return; }
+    const entry = { id: 'L' + Math.random().toString(36).slice(2,9), t: new Date().toISOString(), user: 'Aamuktha', bed: b, type: t, value: Number(v), notes: n };
+    const next = [...readLogs(), entry];
+    writeLogs(next);
+    setLogs(next);
+    setCount(next.length);
+    // small DOM changelog for visible progress
+    const ch = document.getElementById('changelogList');
+    const div = document.createElement('div');
+    div.className = 'changelog-item';
+    div.textContent = `${new Date().toLocaleString()} — Added ${t} log (${v}) to ${b}`;
+    if (ch.textContent.trim() === 'No changes recorded yet.') ch.innerHTML = '';
+    ch.prepend(div);
+  }
+
+  // export CSV wrapper
+  function onExport(){
+    exportCSV(logs);
+  }
+
+  // simple remove (for quick editing)
+  function removeLog(id){
+    const next = logs.filter(l => l.id !== id);
+    writeLogs(next);
+    setLogs(next);
+    setCount(next.length);
+    addDOMChangelog(`Removed log ${id}`);
+  }
+
+  function addDOMChangelog(msg){
+    const el = document.getElementById('changelogList');
+    const div = document.createElement('div');
+    div.className = 'changelog-item';
+    div.textContent = `${new Date().toLocaleString()} — ${msg}`;
+    if (el.textContent.trim() === 'No changes recorded yet.') el.innerHTML = '';
+    el.prepend(div);
+  }
+
+  // simple stats for selected bed/type
+  function statsFor(bedSel, typeSel){
+    const subset = logs.filter(l => l.bed === bedSel && l.type === typeSel).map(l => Number(l.value)).filter(v => !isNaN(v));
+    if (!subset.length) return { last: '—', avg: '—', range: '—' };
+    const last = subset[subset.length - 1];
+    const avg = (subset.reduce((a,b)=>a+b,0)/subset.length).toFixed(2);
+    const min = Math.min(...subset), max = Math.max(...subset);
+    return { last, avg, range: `${min} / ${max}` };
+  }
+
+  // controlled form submit in React widget
+  function handleSubmit(e){
+    e.preventDefault();
+    if (value === '' || isNaN(Number(value))) { alert('Please enter a numeric value'); return; }
+    addQuick(type, value, bed, notes);
+    setValue('');
+    setNotes('');
+  }
+
+  // render
+  const s = statsFor(bed, type);
+
+  return (
+    <div>
+      <div className="flex-between" style={{marginBottom:8}}>
+        <div>
+          <strong>Recent Logs</strong>
+          <div className="muted">Saved in localStorage • <span className="log-count">{count}</span> total</div>
+        </div>
+        <div>
+          <button className="btn btn-outline-secondary btn-sm" onClick={onExport}>Export CSV</button>
+        </div>
+      </div>
+
+      <div style={{display:'flex', gap:12, marginBottom:12}}>
+        <div style={{flex:1}}>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>Garden bed</label>
+              <select className="form-control" value={bed} onChange={e=>setBed(e.target.value)}>
+                <option>Bed 1</option>
+                <option>Bed 2</option>
+                <option>Bed 3</option>
+              </select>
+            </div>
+            <div className="form-group" style={{marginTop:8}}>
+              <label>Type</label>
+              <select className="form-control" value={type} onChange={e=>setType(e.target.value)}>
+                <option value="temperature">Temperature</option>
+                <option value="pH">pH</option>
+                <option value="moisture">Moisture</option>
+              </select>
+            </div>
+            <div className="form-group" style={{marginTop:8}}>
+              <label>Value</label>
+              <input className="form-control" value={value} onChange={e=>setValue(e.target.value)} />
+            </div>
+            <div className="form-group" style={{marginTop:8}}>
+              <label>Notes</label>
+              <input className="form-control" value={notes} onChange={e=>setNotes(e.target.value)} />
+            </div>
+            <div style={{marginTop:8}}>
+              <button className="btn btn-primary btn-sm" type="submit">Add Log</button>
+            </div>
+          </form>
+        </div>
+
+        <div style={{width:260}}>
+          <div className="section" style={{padding:10}}>
+            <div className="muted">Sensor (simulated)</div>
+            <div style={{marginTop:6}}><strong>{sensorOnline ? 'Connected' : 'Disconnected'}</strong></div>
+            <div style={{marginTop:8}} className="muted">Stats for selected bed & type</div>
+            <div style={{marginTop:8}}>
+              <div><small className="muted">Last</small><div>{s.last}</div></div>
+              <div style={{marginTop:6}}><small className="muted">Avg</small><div>{s.avg}</div></div>
+              <div style={{marginTop:6}}><small className="muted">Min / Max</small><div>{s.range}</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        {logs.slice().reverse().map(l => (
+          <div key={l.id} style={{borderBottom:'1px solid #eee', padding:'8px 6px'}} className="log-item">
+            <div><strong>{l.type}</strong> — {l.value} {l.type.includes('temp') ? '°C' : (l.type.includes('moist') ? '%' : '')}</div>
+            <div className="muted">{l.bed} • {l.user} • {new Date(l.t).toLocaleString()}</div>
+            <div style={{marginTop:6}}>
+              <button className="btn btn-sm btn-outline-danger" onClick={()=>removeLog(l.id)}>Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+const root = ReactDOM.createRoot(document.getElementById('react-root'));
+root.render(<LogApp />);
+</script>
+
+
+<script src="bootstrap/js/bootstrap.bundle.min.js"></script>
 </html>
